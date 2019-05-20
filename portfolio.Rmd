@@ -104,10 +104,6 @@ risk_free_rate <- 0
 plot((anpoints[,"targetReturn"]-risk_free_rate) / anpoints[,"targetRisk"], xlab="point on efficient frontier", ylab="Sharpe ratio")
 ```
 
-```{r}
-# Frontier Weights
-barplot(t(fweights), main="Frontier Weights", col=cm.colors(ncol(fweights)+2), legend=colnames(fweights))
-```
 
 
 ```{r}
@@ -126,15 +122,6 @@ tp
 ```{r}
 mvpweights <- getWeights(mvp)
 tangencyweights <- getWeights(tp)
-```
-
-
-```{r}
- 
-#Extract value at risk
-covRisk(preturns, mvpweights)
-varRisk(preturns, mvpweights, alpha = 0.05)
-cvarRisk(preturns, mvpweights, alpha = 0.05)
 ```
 
 ```{r}
