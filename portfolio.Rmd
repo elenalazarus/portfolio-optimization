@@ -1,0 +1,183 @@
+---
+title: "R Notebook"
+author: "Elena Lazarenko"
+output:
+  html_document:
+    df_print: paged
+---
+
+This is my mini-project for finance course where I decided to do some portfolio optimization. 
+
+```{r}
+library(timeSeries)
+library(fPortfolio)
+library(quantmod)
+library(caTools)
+library(dplyr)
+library(PerformanceAnalytics)
+library(ggplot2)
+library(corrplot)
+```
+
+I took absolutely different stocks: Apple and Amazon which I personally like, Cray Inc and CAE Inc which have up on unusual volume, Baidu, Inc. and Coca-Cola Consolidated, Inc. which stock prices are going down.
+```{r}
+# Creating Vector of Tickers
+tickers <- c("AAPL", "NFLX", "CRAY", "CAE", "BIDU", "COKE")
+```
+
+Now I am trying to get prices of stocks since January 1, 2017
+```{r}
+# Get daily returns
+prices <- NULL
+for (t in tickers)
+  prices <- cbind(prices, getSymbols(t, from="2017-01-01", src ="yahoo", auto.assign=FALSE)[,4])
+```
+
+Oh, some values are missing! We can delete the dates where we don't have prices
+```{r}
+prices <- prices[apply(prices, 1, function(x) all(!is.na(x))),]
+colnames(prices) <- tickers
+```
+
+```{r}
+# Calculating daily Return on Capital
+preturns <- na.omit(ROC(prices, type="discrete"))
+preturns <- as.timeSeries(prices)
+```
+
+```{r}
+# Calculate Monthly Returns
+sdata <- tickers %>% lapply(function(x) getSymbols(x, from="2017-01-01", src="yahoo", auto.assign=FALSE)[,4]) %>% lapply(function(x) monthlyReturn(x))
+```
+
+```{r}
+preturns <- do.call(merge, sdata)
+# delete dates that do not have closing prices for all tickers
+preturns <- preturns[apply(preturns, 1, function(x) all(!is.na(x))),]
+colnames(preturns) <- tickers
+preturns <- as.timeSeries(preturns)
+```
+
+```{r}
+# calculate the efficient frontier
+efrontier <- portfolioFrontier(preturns, constraints = "LongOnly")
+efrontier
+```
+
+```{r}
+# plot frontier
+plot(efrontier,c(1,2,3,4))
+```
+
+
+```{r} 
+#Plot Frontier Weights
+fweights <- getWeights(efrontier)
+colnames(fweights) <- tickers
+risk_return <- frontierPoints(efrontier)
+```
+
+Let's see whether stock prices of different companies are correlated.
+```{r}
+# Plot correlation matrix
+cormatrix <- cor(preturns)
+corrplot(cormatrix, method="circle")
+```
+
+```{r}
+# Covariance matrix
+covmatrix <- cov(preturns)
+covmatrix
+```
+
+```{r}
+#Turn data to annual
+rrpoints <- frontierPoints(efrontier)
+anpoints <- data.frame(targetRisk=rrpoints[, "targetRisk"] * sqrt(252),
+                               targetReturn=rrpoints[,"targetReturn"] * 252)
+plot(anpoints)
+```
+
+```{r}
+# Sharpe ratios for each point on the efficient frontier
+risk_free_rate <- 0
+plot((anpoints[,"targetReturn"]-risk_free_rate) / anpoints[,"targetRisk"], xlab="point on efficient frontier", ylab="Sharpe ratio")
+```
+
+```{r}
+# Frontier Weights
+barplot(t(fweights), main="Frontier Weights", col=cm.colors(ncol(fweights)+2), legend=colnames(fweights))
+```
+
+
+```{r}
+#Minimum Variance Portfolio
+mvp <- minvariancePortfolio(preturns, spec=portfolioSpec(), constraints="LongOnly")
+mvp
+```
+
+```{r}
+# Tangency Portfolio
+tp <- tangencyPortfolio(preturns, spec=portfolioSpec(), constraints="LongOnly")
+tp
+```
+
+
+```{r}
+mvpweights <- getWeights(mvp)
+tangencyweights <- getWeights(tp)
+```
+
+
+```{r}
+ 
+#Extract value at risk
+covRisk(preturns, mvpweights)
+varRisk(preturns, mvpweights, alpha = 0.05)
+cvarRisk(preturns, mvpweights, alpha = 0.05)
+```
+
+```{r}
+ 
+# Minimun Variance Portfolio Weights
+df <- data.frame(mvpweights)
+assets <- colnames(fweights)
+ggplot(data=df, aes(x=assets, y=mvpweights, fill=assets)) +
+  geom_bar(stat="identity", position=position_dodge(),colour="black") +
+  geom_text(aes(label=sprintf("%.02f %%",mvpweights*100)),
+            position=position_dodge(width=0.9), vjust=-0.25, check_overlap = TRUE) +
+              ggtitle("Minimum Variance Portfolio Optimal Weights")+ theme(plot.title = element_text(hjust = 0.5)) +
+                labs(x= "Assets", y = "Weight (%)")
+```
+
+```{r}
+# Tangency Portfolio Weights
+dft <- data.frame(tangencyweights)
+assets <- colnames(fweights)
+ggplot(data=dft, aes(x=assets, y=tangencyweights, fill=assets)) +
+  geom_bar(stat="identity", position=position_dodge(),colour="black") +
+  geom_text(aes(label=sprintf("%.02f %%",tangencyweights*100)),
+            position=position_dodge(width=0.9), vjust=-0.25, check_overlap = TRUE) +
+  ggtitle("Tangency Portfolio Weights")+ theme(plot.title = element_text(hjust = 0.5)) +
+  labs(x= "Assets", y = "Weight (%)")
+```
+
+
+```{r}
+# Pie of Minimum Variance Portfolio Weight
+bar <- ggplot(df, aes(x = "", y = mvpweights, fill=assets)) + geom_bar(width= 1, stat="identity") + ggtitle("Minimum Variance Portfolio Weights")+ theme(plot.title = element_text(hjust = 0.5)) 
+pie <- bar + coord_polar("y", start=0)
+pie + scale_fill_brewer(palette="Blues")+
+  theme_minimal()
+```
+
+```{r}
+# Pie of Tangency Portfolio Weights
+bar <- ggplot(dft, aes(x = "", y = tangencyweights, fill=assets)) + geom_bar(width= 1, stat="identity") + ggtitle("Tangency Portfolio Weights")+ theme(plot.title = element_text(hjust = 0.5)) 
+pie <- bar + coord_polar("y", start=0)
+pie + scale_fill_brewer(palette="Blues")+
+  theme_minimal()
+```
+
+
+
