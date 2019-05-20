@@ -1,0 +1,167 @@
+---
+title: "R Notebook"
+author: "Elena Lazarenko"
+output:
+  html_document:
+    df_print: paged
+---
+
+This is my mini-project for finance course where I decided to do some portfolio optimization. 
+
+```{r}
+library(timeSeries)
+library(fPortfolio)
+library(quantmod)
+library(caTools)
+library(dplyr)
+library(PerformanceAnalytics)
+library(ggplot2)
+library(corrplot)
+```
+
+I took absolutely different stocks: Apple and Amazon which I personally like, Cray Inc and CAE Inc which have up on unusual volume, Baidu, Inc. and Coca-Cola Consolidated, Inc. which stock prices are going down.
+```{r}
+# Creating Vector of Tickers
+tickers <- c("AAPL", "NFLX", "CRAY", "CAE", "BIDU", "COKE")
+```
+
+Now I am trying to get prices of stocks since January 1, 2017
+```{r}
+# Get daily returns
+prices <- NULL
+for (t in tickers)
+  prices <- cbind(prices, getSymbols(t, from="2017-01-01", src ="yahoo", auto.assign=FALSE)[,4])
+```
+
+Oh, some values are missing! We can delete the dates where we don't have prices
+```{r}
+prices <- prices[apply(prices, 1, function(x) all(!is.na(x))),]
+colnames(prices) <- tickers
+```
+
+```{r}
+# Calculating daily Return on Capital
+preturns <- na.omit(ROC(prices, type="discrete"))
+preturns <- as.timeSeries(prices)
+```
+
+```{r}
+# Calculate Monthly Returns
+sdata <- tickers %>% lapply(function(x) getSymbols(x, from="2017-01-01", src="yahoo", auto.assign=FALSE)[,4]) %>% lapply(function(x) monthlyReturn(x))
+```
+
+
+```{r}
+preturns <- do.call(merge, sdata)
+# delete dates that do not have closing prices for all tickers
+preturns <- preturns[apply(preturns, 1, function(x) all(!is.na(x))),]
+colnames(preturns) <- tickers
+preturns <- as.timeSeries(preturns)
+```
+
+Now I will calculate th efficient frontier. The efficient frontier is the set of optimal portfolios that offer the highest expected return for a defined level of risk or the lowest risk for a given level of expected return. Portfolios that lie below the efficient frontier are sub-optimal because they do not provide enough return for the level of risk. Portfolios that cluster to the right of the efficient frontier are sub-optimal because they have a higher level of risk for the defined rate of return.
+```{r}
+# calculate the efficient frontier
+efrontier <- portfolioFrontier(preturns, constraints = "LongOnly")
+efrontier
+```
+
+Let's plot efficient frontier for better understanding.
+```{r}
+# plot frontier
+plot(efrontier,c(1,2,3,4))
+```
+
+Let's see whether stock prices of different companies are correlated.
+```{r}
+# Plot correlation matrix
+cormatrix <- cor(preturns)
+corrplot(cormatrix, method="circle")
+```
+
+Now let's build the covariance matrix. If some stock prices increase and decrease simultaneously then the covariance value will be positive. Conversely if some increase while the other decrease then the covariance will be negative. As you can see covariancw is almost zero everywhere, I even can not visualize it.
+```{r}
+# Covariance matrix
+covmatrix <- cov(preturns)
+covmatrix
+```
+
+```{r}
+#Turn data to annual
+rrpoints <- frontierPoints(efrontier)
+anpoints <- data.frame(targetRisk=rrpoints[, "targetRisk"] * sqrt(252),
+                               targetReturn=rrpoints[,"targetReturn"] * 252)
+plot(anpoints)
+```
+
+```{r}
+# Sharpe ratios for each point on the efficient frontier
+risk_free_rate <- 0
+plot((anpoints[,"targetReturn"]-risk_free_rate) / anpoints[,"targetRisk"], xlab="point on efficient frontier", ylab="Sharpe ratio")
+```
+
+Here I defined Minimum Variance Portfolio. MVP means a diversified portfolio that mitigates risk properly.
+```{r}
+# Minimum Variance Portfolio
+mvp <- minvariancePortfolio(preturns, spec=portfolioSpec(), constraints="LongOnly")
+mvp
+```
+
+And that is the Tangency Portfolio. Tangency portfolio is the result of the intercept point of Capital Market Line and efficient frontier
+```{r}
+# Tangency Portfolio
+tp <- tangencyPortfolio(preturns, spec=portfolioSpec(), constraints="LongOnly")
+tp
+```
+
+Let's see what are the weights of both portfolios and visualize them.
+
+```{r}
+mvpweights <- getWeights(mvp)
+tangencyweights <- getWeights(tp)
+```
+
+
+```{r}
+ 
+# Minimun Variance Portfolio Weights
+df <- data.frame(mvpweights)
+assets <- colnames(fweights)
+ggplot(data=df, aes(x=assets, y=mvpweights, fill=assets)) +
+  geom_bar(stat="identity", position=position_dodge(),colour="black") +
+  geom_text(aes(label=sprintf("%.02f %%",mvpweights*100)),
+            position=position_dodge(width=0.9), vjust=-0.25, check_overlap = TRUE) +
+              ggtitle("Minimum Variance Portfolio Optimal Weights")+ theme(plot.title = element_text(hjust = 0.5)) +
+                labs(x= "Assets", y = "Weight (%)")
+```
+
+```{r}
+# Tangency Portfolio Weights
+dft <- data.frame(tangencyweights)
+assets <- colnames(fweights)
+ggplot(data=dft, aes(x=assets, y=tangencyweights, fill=assets)) +
+  geom_bar(stat="identity", position=position_dodge(),colour="black") +
+  geom_text(aes(label=sprintf("%.02f %%",tangencyweights*100)),
+            position=position_dodge(width=0.9), vjust=-0.25, check_overlap = TRUE) +
+  ggtitle("Tangency Portfolio Weights")+ theme(plot.title = element_text(hjust = 0.5)) +
+  labs(x= "Assets", y = "Weight (%)")
+```
+
+
+```{r}
+# Pie of Minimum Variance Portfolio Weight
+bar <- ggplot(df, aes(x = "", y = mvpweights, fill=assets)) + geom_bar(width= 1, stat="identity") + ggtitle("Minimum Variance Portfolio Weights")+ theme(plot.title = element_text(hjust = 0.5)) 
+pie <- bar + coord_polar("y", start=0)
+pie + scale_fill_brewer(palette="Blues")+
+  theme_minimal()
+```
+
+```{r}
+# Pie of Tangency Portfolio Weights
+bar <- ggplot(dft, aes(x = "", y = tangencyweights, fill=assets)) + geom_bar(width= 1, stat="identity") + ggtitle("Tangency Portfolio Weights")+ theme(plot.title = element_text(hjust = 0.5)) 
+pie <- bar + coord_polar("y", start=0)
+pie + scale_fill_brewer(palette="Blues")+
+  theme_minimal()
+```
+
+Actually after all of it I can not tell which portfolio I would personally choose. Maybe I would rather prefer Tangency Portfolio because I think that this is less risky than the Minimum Variance Portfolio.I see that Minimum Variance portfolio suggest to invest in Baidu but now their stock prices are going down. And both Tangency Portfolio and MVP suggest to invest in CAE Inc the biggest weight which is interesting because now their stock prices are going up very fast. So from two plots I can tell that I would rather invest in Netflix than in Baidu although MVP shows vice versa but I don't think that it is right way to act.
